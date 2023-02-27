@@ -3,34 +3,46 @@
 #include <iostream>
 
 #include <vecmem/containers/vector.hpp>
+#include <vecmem/containers/data/vector_view.hpp>
 #include <vecmem/memory/host_memory_resource.hpp>
 
 #include "Stream.h"
 
-#ifdef VECPAR_GPU
-#include "cuda.h"
-#include <vecmem/memory/cuda/managed_memory_resource.hpp>
-#include <vecmem/memory/cuda/device_memory_resource.hpp>
-#include <vecmem/containers/data/vector_buffer.hpp>
-#include <vecmem/utils/cuda/copy.hpp>
-#include <vecpar/cuda/cuda_parallelization.hpp>
+#if defined(VECPAR_GPU)
+    #if defined(NATIVE)
+        #include "cuda.h"
+        #include <vecmem/memory/cuda/managed_memory_resource.hpp>
+        #include <vecmem/memory/cuda/device_memory_resource.hpp>
+        #include <vecmem/containers/data/vector_buffer.hpp>
+        #include <vecmem/utils/cuda/copy.hpp>
+        #include <vecpar/cuda/cuda_parallelization.hpp>
+    #else
+        #include <vecpar/ompt/ompt_parallelization.hpp>
+    #endif
 #endif
 
 #include <vecpar/all/main.hpp>
 
-#if defined(VECPAR_GPU) && defined(MANAGED)
-    #define IMPLEMENTATION_STRING "vecpar_gpu_single_source_managed_memory"
-    #define SINGLE_SOURCE "1"
-#elif defined(VECPAR_GPU) && defined(DEFAULT)
-    #define IMPLEMENTATION_STRING "vecpar_gpu_host_device_memory"
+//backend = NATIVE/ompt, memory = default/managed, offload=0/1
+#if defined(NATIVE) and defined(DEFAULT) and defined(VECPAR_GPU)
+    #define IMPLEMENTATION_STRING "vecpar_cuda_hostdevice"
+#elif defined(NATIVE) and defined(DEFAULT) and !defined(VECPAR_GPU)
+    #define IMPLEMENTATION_STRING "vecpar_omp_hostmemory"
+#elif defined(NATIVE) and defined(MANAGED) and defined(VECPAR_GPU)
+    #define IMPLEMENTATION_STRING "vecpar_cuda_singlesource_managedmemory"
+    #define SINGLE_SOURCE 1
+#elif defined(NATIVE) and defined(MANAGED) and !defined(VECPAR_GPU)
+    #define IMPLEMENTATION_STRING "vecpar_omp_singlesource_managedmemory"
+    #define SINGLE_SOURCE 1
+#elif defined(OMPT) and defined(DEFAULT) and defined(VECPAR_GPU)
+    #define IMPLEMENTATION_STRING "vecpar_ompt_gpu_singlesource_hostdevice"
+    #define SINGLE_SOURCE 1
+#elif defined(OMPT) and defined(DEFAULT) and !defined(VECPAR_GPU)
+    #define IMPLEMENTATION_STRING "vecpar_ompt_cpu_singlesource_hostmemory"
+    #define SINGLE_SOURCE 1
 #else
-//##elif defined(MANAGED)
-    #define IMPLEMENTATION_STRING "vecpar_cpu_single_source"
-    #define SINGLE_SOURCE "1"
-//#else
-  //  #define IMPLEMENTATION_STRING "vecpar_cpu_host_memory"
-#endif
-
+    #define IMPLEMENTATION_STRING "NOT_RELEVANT"
+ #endif
 
 template <class T>
 class VecparStream : public Stream<T>
@@ -47,13 +59,20 @@ protected:
 #if defined(VECPAR_GPU) && defined(MANAGED)
     vecmem::cuda::managed_memory_resource memoryResource;
 #elif defined(VECPAR_GPU) && defined(DEFAULT)
-    vecmem::host_memory_resource memoryResource;
-    vecmem::cuda::device_memory_resource dev_mem;
-    vecmem::cuda::copy copy_tool;
+    #if defined(NATIVE)
+        vecmem::host_memory_resource memoryResource;
+        vecmem::cuda::device_memory_resource dev_mem;
+        vecmem::cuda::copy copy_tool;
 
-    vecmem::data::vector_buffer<T> d_a;
-    vecmem::data::vector_buffer<T> d_b;
-    vecmem::data::vector_buffer<T> d_c;
+        vecmem::data::vector_buffer<T> d_a;
+        vecmem::data::vector_buffer<T> d_b;
+        vecmem::data::vector_buffer<T> d_c;
+    #else
+        vecmem::host_memory_resource memoryResource;
+        T* d_a;
+        T* d_b;
+        T* d_c;
+    #endif
 #else
     vecmem::host_memory_resource memoryResource;
 #endif
@@ -73,9 +92,10 @@ public:
     virtual void read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector<T>& c) override;
 };
 
+
 /// if SHARED MEMORY is set, then vecpar single source code can be used;
 /// define one algorithm per function
-#ifdef MANAGED
+//#ifdef MANAGED
     template <class T>
     struct vecpar_triad :
         public vecpar::algorithm::parallelizable_mmap<
@@ -85,7 +105,7 @@ public:
             vecmem::vector<T>, // c
             const T // scalar
             > {
-        TARGET T& map(T& a_i, const T& b_i, const T& c_i, const T scalar) const {
+        TARGET T& mapping_function(T& a_i, const T& b_i, const T& c_i, const T scalar) const {
             a_i = b_i + scalar * c_i;
             return a_i;
         }
@@ -99,7 +119,7 @@ struct vecpar_add :
                 vecmem::vector<T>, // a
                 vecmem::vector<T>> // b
                 {
-    TARGET T& map(T& c_i, const T& a_i, const T& b_i) const {
+    TARGET T& mapping_function(T& c_i, const T& a_i, const T& b_i) const {
         c_i = a_i + b_i ;
         return c_i;
     }
@@ -113,7 +133,7 @@ struct vecpar_mul:
                 vecmem::vector<T>, // c
                 const T > //  scalar
             {
-    TARGET T& map(T& b_i, const T& c_i, const T scalar) const {
+    TARGET T& mapping_function(T& b_i, const T& c_i, const T scalar) const {
         b_i = scalar * c_i ;
         return b_i;
     }
@@ -126,7 +146,7 @@ struct vecpar_copy:
                 vecmem::vector<T>, // c
                 vecmem::vector<T>> // a
 {
-    TARGET T& map(T& c_i, const T& a_i) const {
+    TARGET T& mapping_function(T& c_i, const T& a_i) const {
         c_i = a_i;
         return c_i;
     }
@@ -141,12 +161,12 @@ struct vecpar_dot:
                 vecmem::vector<T>, // a
                 vecmem::vector<T>> // b
 {
-    TARGET T& map(T& result, T& a_i, const T& b_i) const {
+    TARGET T& mapping_function(T& result, T& a_i, const T& b_i) const {
         result = a_i * b_i;
         return result;
     }
 
-    TARGET T* reduce(T* result, T& crt) const {
+    TARGET T* reducing_function(T* result, T& crt) const {
         *result += crt;
         return result;
     }
@@ -160,7 +180,7 @@ struct vecpar_nstream : public vecpar::algorithm::parallelizable_mmap<
         vecmem::vector<T>, // c
         const T> // scalar
 {
-    TARGET T& map(T& a_i, const T& b_i, const T& c_i, const T scalar) const {
+    TARGET T& mapping_function(T& a_i, const T& b_i, const T& c_i, const T scalar) const {
         a_i += b_i + scalar * c_i;
         return a_i;
     }

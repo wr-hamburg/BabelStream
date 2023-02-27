@@ -26,13 +26,13 @@ register_flag_optional(OFFLOAD_FLAGS
 register_flag_optional(OFFLOAD_APPEND_LINK_FLAG
         "If enabled, this appends all resolved offload flags (OFFLOAD=<vendor:arch> or directly from OFFLOAD_FLAGS) to the link flags.
         This is required for most offload implementations so that offload libraries can linked correctly."
-        ON)
+        OFF)
 
-#register_flag_optional(VECPAR_BACKEND
- #       "Valid values:
-  #          * VECPAR_BACKEND=OFF (default)
-   #         * VECPAR_BACKEND=CUDA
-    #        * VECPAR_BACKEND=OMPT" OFF)
+register_flag_optional(VECPAR_BACKEND
+        "Valid values:
+            MAIN  - OpenMP for CPU and CUDA for NVIDIA GPU.
+            OMPT    - OpenMP Target for CPU and GPU"
+        "NATIVE")
 
 register_flag_optional(MEM "Device memory mode:
         DEFAULT   - allocate host and device memory pointers.
@@ -40,8 +40,23 @@ register_flag_optional(MEM "Device memory mode:
         "DEFAULT")
 
 set(VECPAR_FLAGS_CLANG -fopenmp)
-set(VECPAR_FLAGS_OFFLOAD_CLANG_NVIDIA --language=cuda)
-#set(VECPAR_BACKEND "CUDA")
+
+if ("${VECPAR_BACKEND}" STREQUAL "OMPT")
+    set(VECPAR_FLAGS_OFFLOAD_GNU_NVIDIA
+            -foffload=nvptx-none -DCOMPILE_FOR_DEVICE)
+    set(VECPAR_FLAGS_OFFLOAD_GNU_AMD
+            -foffload=amdgcn-amdhsa -DCOMPILE_FOR_DEVICE)
+    set(VECPAR_FLAGS_OFFLOAD_CLANG_NVIDIA -fopenmp -fopenmp-targets=nvptx64 -gline-tables-only -DCOMPILE_FOR_DEVICE)
+    set(VECPAR_FLAGS_OFFLOAD_CLANG_AMD
+            -fopenmp=libomp -fopenmp-targets=amdgcn-amd-amdhsa -Xopenmp-target=amdgcn-amd-amdhsa -DCOMPILE_FOR_DEVICE)
+else()
+    set(VECPAR_FLAGS_OFFLOAD_CLANG_NVIDIA --language=cuda)
+endif()
+
+register_definitions(${VECPAR_BACKEND})
+
+register_definitions(MEM=${MEM})
+
 
 macro(setup)
 
@@ -53,8 +68,16 @@ macro(setup)
     find_package(vecpar REQUIRED 0.0.3)
 
     find_package(OpenMP QUIET)
-    #find_package(vecmem QUIET)
 
+    if (("${VECPAR_BACKEND}" STREQUAL "NATIVE") AND (DEFINED OFFLOAD))
+        find_package(CUDAToolkit)
+        include_directories(CUDAToolkit_INCLUDE_DIRS)
+        register_link_library(CUDA::cudart)
+    endif()
+
+    if ("${VECPAR_BACKEND}" STREQUAL "OMPT")
+        register_link_library(OpenMP::OpenMP_CXX)
+    endif()
 
     if (("${OFFLOAD}" STREQUAL OFF) OR (NOT DEFINED OFFLOAD))
         # no offload
@@ -63,24 +86,9 @@ macro(setup)
         register_link_library(OpenMP::OpenMP_CXX)
 
         list(APPEND VECPAR_FLAGS -fopenmp)
-        # resolve the CPU specific flags
-   #     set(VECPAR_FLAGS -fopenmp)
-    #    set(VECPAR_LINK_FLAGS -fopenmp)
-  #      register_append_compiler_and_arch_specific_cxx_flags(
-   #             VECPAR_FLAGS_CPU
-    #            ${COMPILER}
-     #           ${ARCH}
-     #   )
-
-      #  register_append_compiler_and_arch_specific_link_flags(
-       #         VECPAR_LINK_FLAGS_CPU
-        #        ${COMPILER}
-         #       ${ARCH}
-        #)
 
     elseif ("${OFFLOAD}" STREQUAL ON)
         #  offload but with custom flags
-        find_package(CUDAToolkit QUIET)
         register_definitions(VECPAR_GPU)
         separate_arguments(OFFLOAD_FLAGS)
         set(VECPAR_FLAGS ${OFFLOAD_FLAGS})
@@ -89,15 +97,13 @@ macro(setup)
         register_link_library(vecpar::all)
     elseif ((DEFINED OFFLOAD) AND OFFLOAD_FLAGS)
         # offload but OFFLOAD_FLAGS overrides
-        find_package(CUDAToolkit QUIET)
         register_definitions(VECPAR_GPU)
         separate_arguments(OFFLOAD_FLAGS)
-        list(VECPAR_FLAGS APPEND  ${OFFLOAD_FLAGS})
+        list(APPEND VECPAR_FLAGS  ${OFFLOAD_FLAGS})
         register_link_library(CUDA::cudart)
         register_link_library(vecmem::cuda)
         register_link_library(vecpar::all)
     else ()
-        find_package(CUDAToolkit QUIET)
         register_definitions(VECPAR_GPU)
      #   list(APPEND VECPAR_FLAGS "-x cuda")
 
@@ -110,7 +116,6 @@ macro(setup)
             list(GET OFFLOAD_TUPLE 0 OFFLOAD_VENDOR)
             # append VECPAR_FLAGS_OFFLOAD_<vendor> if  exists
             list(APPEND VECPAR_FLAGS ${VECPAR_FLAGS_OFFLOAD_${OFFLOAD_VENDOR}})
-
         elseif (LEN EQUAL 2)
             #  offload with <vendor:arch> tuple
             list(GET OFFLOAD_TUPLE 0 OFFLOAD_VENDOR)
@@ -127,7 +132,6 @@ macro(setup)
         else ()
             message(FATAL_ERROR "Unrecognised OFFLOAD format: `${OFFLOAD}`, consider directly using OFFLOAD_FLAGS")
         endif ()
-
         register_link_library(CUDA::cudart)
         register_link_library(vecmem::cuda)
     endif ()
@@ -138,9 +142,9 @@ macro(setup)
 
     # propagate flags to linker so that it links with the offload stuff as well
     register_append_cxx_flags(ANY ${VECPAR_FLAGS})
-#    if (OFFLOAD_APPEND_LINK_FLAG)
- #       register_append_link_flags(${VECPAR_FLAGS})
-  #  endif ()
+    if ("${VECPAR_BACKEND}" STREQUAL "OMPT") #(OFFLOAD_APPEND_LINK_FLAG)
+        register_append_link_flags(${VECPAR_FLAGS})
+    endif ()
 
 endmacro()
 

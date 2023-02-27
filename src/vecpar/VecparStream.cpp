@@ -9,11 +9,24 @@ VecparStream<T>::VecparStream(const int ARRAY_SIZE, int device)
     this->a = new vecmem::vector<T>(array_size, &memoryResource);
     this->b = new vecmem::vector<T>(array_size, &memoryResource);
     this->c = new vecmem::vector<T>(array_size, &memoryResource);
+
+#if defined(VECPAR_GPU) and defined(OMPT)
+    d_a = a->data();
+    d_b = b->data();
+    d_c = c->data();
+
+    #pragma omp target enter data map(alloc: d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
+  {}
+#endif
 }
 
 template <class T>
 VecparStream<T>::~VecparStream()
 {
+#if defined(VECPAR_GPU) and defined(OMPT)
+#pragma omp target exit data map(release: d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
+    {}
+#endif
     free(a);
     free(b);
     free(c);
@@ -31,7 +44,8 @@ void VecparStream<T>::init_arrays(T initA, T initB, T initC)
         c->at(i) = initC;
     }
 
-#if defined(VECPAR_GPU) && defined(DEFAULT)
+#if defined(VECPAR_GPU) and defined(DEFAULT)
+#if defined(NATIVE)
     d_a = copy_tool.to(vecmem::get_data(*a),
                   dev_mem,
                   vecmem::copy::type::host_to_device);
@@ -41,6 +55,13 @@ void VecparStream<T>::init_arrays(T initA, T initB, T initC)
     d_c = copy_tool.to(vecmem::get_data(*c),
                   dev_mem,
                   vecmem::copy::type::host_to_device);
+#else
+    d_a = a->data();
+    d_b = b->data();
+    d_c = c->data();
+#pragma omp target update to(d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
+  {}
+#endif
 #endif
 }
 
@@ -48,10 +69,18 @@ template <class T>
 void VecparStream<T>::read_arrays(std::vector<T>& h_a, std::vector<T>& h_b, std::vector<T>& h_c)
 {
 
-#if defined(VECPAR_GPU) && defined(DEFAULT)
+#if defined(VECPAR_GPU) and defined(DEFAULT)
+#if defined(NATIVE)
     copy_tool(d_a, *a, vecmem::copy::type::device_to_host);
     copy_tool(d_b, *b, vecmem::copy::type::device_to_host);
     copy_tool(d_c, *c, vecmem::copy::type::device_to_host);
+#else
+    d_a = a->data();
+    d_b = b->data();
+    d_c = c->data();
+#pragma omp target update from(d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
+  {}
+#endif
 #endif
 
     for (int i = 0; i < array_size; i++)
@@ -65,9 +94,13 @@ void VecparStream<T>::read_arrays(std::vector<T>& h_a, std::vector<T>& h_b, std:
 template <class T>
 void VecparStream<T>::copy()
 {
-#if defined(SINGLE_SOURCE) // gpu+managed, cpu
+#if defined(SINGLE_SOURCE) // gpu+managed
     vecpar_copy<T> algorithm;
-    vecpar::parallel_algorithm(algorithm, memoryResource, *c, *a);
+#if defined(NATIVE)  // omp + cuda
+     vecpar::parallel_algorithm(algorithm, memoryResource, *c, *a);
+#else
+    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *c, *a);
+#endif
 #else
     #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
@@ -94,7 +127,11 @@ void VecparStream<T>::mul()
     const T scalar = startScalar;
 #if defined(SINGLE_SOURCE)
     vecpar_mul<T> algorithm;
+#if defined(NATIVE)  // omp + cuda
     vecpar::parallel_algorithm(algorithm, memoryResource, *b, *c, scalar);
+#else
+    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *b, *c, scalar);
+#endif
 #else
     #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
@@ -122,7 +159,11 @@ void VecparStream<T>::add()
 {
 #if defined(SINGLE_SOURCE)
     vecpar_add<T> algorithm;
+#if defined(NATIVE)  // omp + cuda
     vecpar::parallel_algorithm(algorithm, memoryResource, *c, *a, *b);
+#else
+    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *c, *a, *b);
+#endif
 #else //defined (DEFAULT)
     #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
@@ -154,7 +195,11 @@ void VecparStream<T>::triad()
 
     #if defined(SINGLE_SOURCE)
         vecpar_triad<T> algorithm;
-        vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+#if defined(NATIVE)  // omp + cuda
+    vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+#else
+    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+#endif
     #else //defined (DEFAULT)
         #if defined (VECPAR_GPU)
             vecpar::cuda::parallel_map(
@@ -188,7 +233,11 @@ void VecparStream<T>::nstream()
 
     #if defined(SINGLE_SOURCE)
         vecpar_nstream<T> algorithm;
-        vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+#if defined(NATIVE)  // omp + cuda
+    vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+#else
+    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+#endif
     #else
     #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
@@ -221,7 +270,11 @@ T VecparStream<T>::dot()
     *sum = 0.0;
 #if defined(SINGLE_SOURCE)
     vecpar_dot<T> algorithm;
+#if defined(NATIVE)  // omp + cuda
     *sum = vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b);
+#else
+    *sum = vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b);
+#endif
 #else
     #ifdef VECPAR_GPU
         T* dsum;
