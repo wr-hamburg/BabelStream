@@ -46,7 +46,7 @@ if ("${VECPAR_BACKEND}" STREQUAL "OMPT")
             -foffload=nvptx-none -DCOMPILE_FOR_DEVICE)
     set(VECPAR_FLAGS_OFFLOAD_GNU_AMD
             -foffload=amdgcn-amdhsa -DCOMPILE_FOR_DEVICE)
-    set(VECPAR_FLAGS_OFFLOAD_CLANG_NVIDIA -fopenmp -fopenmp-targets=nvptx64 -gline-tables-only -DCOMPILE_FOR_DEVICE)
+    set(VECPAR_FLAGS_OFFLOAD_CLANG_NVIDIA -fopenmp -fopenmp-targets=nvptx64 -DCOMPILE_FOR_DEVICE)
     set(VECPAR_FLAGS_OFFLOAD_CLANG_AMD
             -fopenmp=libomp -fopenmp-targets=amdgcn-amd-amdhsa -Xopenmp-target=amdgcn-amd-amdhsa -DCOMPILE_FOR_DEVICE)
 else()

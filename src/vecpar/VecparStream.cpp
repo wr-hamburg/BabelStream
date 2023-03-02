@@ -96,13 +96,12 @@ void VecparStream<T>::copy()
 {
 #if defined(SINGLE_SOURCE) // gpu+managed
     vecpar_copy<T> algorithm;
-#if defined(NATIVE)  // omp + cuda
-     vecpar::parallel_algorithm(algorithm, memoryResource, *c, *a);
+    #if defined(NATIVE)  // omp + cuda
+        vecpar::parallel_algorithm(algorithm, memoryResource, *c, *a);
+    #else
+        vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *c, *a);
+    #endif
 #else
-    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *c, *a);
-#endif
-#else
-    #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
                 array_size,
                 [=] __device__ (int idx,
@@ -114,10 +113,6 @@ void VecparStream<T>::copy()
         },
         vecmem::get_data(d_c),
         vecmem::get_data(d_a));
-    #else // lambda
-        vecpar::omp::parallel_map(array_size,
-                              [&] (int idx)  { c->at(idx) = a->at(idx);});
-    #endif
 #endif
 }
 
@@ -127,13 +122,12 @@ void VecparStream<T>::mul()
     const T scalar = startScalar;
 #if defined(SINGLE_SOURCE)
     vecpar_mul<T> algorithm;
-#if defined(NATIVE)  // omp + cuda
-    vecpar::parallel_algorithm(algorithm, memoryResource, *b, *c, scalar);
+    #if defined(NATIVE)  // omp + cuda
+        vecpar::parallel_algorithm(algorithm, memoryResource, *b, *c, scalar);
+    #else
+        vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *b, *c, scalar);
+    #endif
 #else
-    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *b, *c, scalar);
-#endif
-#else
-    #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
                 array_size,
                 [=] __device__ (int idx,
@@ -147,10 +141,6 @@ void VecparStream<T>::mul()
         vecmem::get_data(d_b),
         vecmem::get_data(d_c),
         scalar);
-    #else
-        vecpar::omp::parallel_map(array_size,
-                              [&] (int idx)  { b->at(idx) = scalar * c->at(idx);});
-    #endif
 #endif
 }
 
@@ -159,13 +149,12 @@ void VecparStream<T>::add()
 {
 #if defined(SINGLE_SOURCE)
     vecpar_add<T> algorithm;
-#if defined(NATIVE)  // omp + cuda
-    vecpar::parallel_algorithm(algorithm, memoryResource, *c, *a, *b);
-#else
-    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *c, *a, *b);
-#endif
+    #if defined(NATIVE)  // omp + cuda
+        vecpar::parallel_algorithm(algorithm, memoryResource, *c, *a, *b);
+    #else
+        vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *c, *a, *b);
+    #endif
 #else //defined (DEFAULT)
-    #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
                 array_size,
                 [=] __device__ (int idx,
@@ -180,10 +169,6 @@ void VecparStream<T>::add()
         vecmem::get_data(d_a),
         vecmem::get_data(d_b),
         vecmem::get_data(d_c));
-    #else
-        vecpar::omp::parallel_map(array_size,
-                              [&] (int idx)  { c->at(idx) = a->at(idx) + b->at(idx);});
-    #endif
 #endif
 }
 
@@ -195,13 +180,12 @@ void VecparStream<T>::triad()
 
     #if defined(SINGLE_SOURCE)
         vecpar_triad<T> algorithm;
-#if defined(NATIVE)  // omp + cuda
-    vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
-#else
-    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
-#endif
+        #if defined(NATIVE)  // omp + cuda
+            vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+        #else
+            vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+        #endif
     #else //defined (DEFAULT)
-        #if defined (VECPAR_GPU)
             vecpar::cuda::parallel_map(
                     array_size,
                     [=] __device__ (int idx,
@@ -218,11 +202,6 @@ void VecparStream<T>::triad()
             vecmem::get_data(d_b),
             vecmem::get_data(d_c),
             scalar);
-        #else
-            vecpar::omp::parallel_map(array_size,
-                                      [&] (int idx) {
-                        a->at(idx) = b->at(idx) + scalar * c->at(idx); });
-        #endif
     #endif
 }
 
@@ -233,13 +212,12 @@ void VecparStream<T>::nstream()
 
     #if defined(SINGLE_SOURCE)
         vecpar_nstream<T> algorithm;
-#if defined(NATIVE)  // omp + cuda
-    vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
-#else
-    vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
-#endif
+        #if defined(NATIVE)  // omp + cuda
+            vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+        #else
+            vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b, *c, scalar);
+        #endif
     #else
-    #ifdef VECPAR_GPU
         vecpar::cuda::parallel_map(
                 array_size,
                 [=] __device__ (int idx,
@@ -256,11 +234,7 @@ void VecparStream<T>::nstream()
         vecmem::get_data(d_b),
         vecmem::get_data(d_c),
         scalar);
-    #else
-        vecpar::omp::parallel_map(array_size,
-                              [&] (int idx)  { a->at(idx) = b->at(idx) + scalar * c->at(idx);});
-    #endif
-#endif
+ #endif
 }
 
 template <class T>
@@ -270,13 +244,12 @@ T VecparStream<T>::dot()
     *sum = 0.0;
 #if defined(SINGLE_SOURCE)
     vecpar_dot<T> algorithm;
-#if defined(NATIVE)  // omp + cuda
-    *sum = vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b);
+    #if defined(NATIVE)  // omp + cuda
+        *sum = vecpar::parallel_algorithm(algorithm, memoryResource, *a, *b);
+    #else
+        *sum = vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b);
+    #endif
 #else
-    *sum = vecpar::ompt::parallel_algorithm(algorithm, memoryResource, *a, *b);
-#endif
-#else
-    #ifdef VECPAR_GPU
         T* dsum;
         cudaMalloc(&dsum, sizeof(T));
         vecpar::cuda::offload_reduce(array_size,
@@ -294,13 +267,6 @@ T VecparStream<T>::dot()
             vecmem::get_data(d_b));
         cudaMemcpy(sum, dsum, sizeof(T), cudaMemcpyDeviceToHost);
         cudaFree(dsum);
-    #else
-        vecmem::vector<T> result(array_size, &memoryResource);
-        vecpar::omp::parallel_map(array_size,
-                                  [&] (int idx) { result.at(idx) = a->at(idx) * b->at(idx); });
-        vecpar::omp::parallel_reduce(array_size, sum,
-                              [&] (T* sum, T& value)  { *sum += value; }, result);
-    #endif
 #endif
     return *sum;
 }

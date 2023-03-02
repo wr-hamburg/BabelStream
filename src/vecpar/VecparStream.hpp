@@ -26,8 +26,10 @@
 //backend = NATIVE/ompt, memory = default/managed, offload=0/1
 #if defined(NATIVE) and defined(DEFAULT) and defined(VECPAR_GPU)
     #define IMPLEMENTATION_STRING "vecpar_cuda_hostdevice"
+    #undef SINGLE_SOURCE
 #elif defined(NATIVE) and defined(DEFAULT) and !defined(VECPAR_GPU)
     #define IMPLEMENTATION_STRING "vecpar_omp_hostmemory"
+    #define SINGLE_SOURCE 1
 #elif defined(NATIVE) and defined(MANAGED) and defined(VECPAR_GPU)
     #define IMPLEMENTATION_STRING "vecpar_cuda_singlesource_managedmemory"
     #define SINGLE_SOURCE 1
@@ -92,10 +94,7 @@ public:
     virtual void read_arrays(std::vector<T>& a, std::vector<T>& b, std::vector<T>& c) override;
 };
 
-
-/// if SHARED MEMORY is set, then vecpar single source code can be used;
-/// define one algorithm per function
-//#ifdef MANAGED
+/// define vecpar algorithms
     template <class T>
     struct vecpar_triad :
         public vecpar::algorithm::parallelizable_mmap<
@@ -186,5 +185,5 @@ struct vecpar_nstream : public vecpar::algorithm::parallelizable_mmap<
     }
 
 };
-#endif
+
 
