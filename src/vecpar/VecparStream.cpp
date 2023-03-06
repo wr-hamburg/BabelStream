@@ -45,23 +45,45 @@ void VecparStream<T>::init_arrays(T initA, T initB, T initC)
     }
 
 #if defined(VECPAR_GPU) and defined(DEFAULT)
-#if defined(NATIVE)
-    d_a = copy_tool.to(vecmem::get_data(*a),
-                  dev_mem,
-                  vecmem::copy::type::host_to_device);
-    d_b = copy_tool.to(vecmem::get_data(*b),
-                  dev_mem,
-                  vecmem::copy::type::host_to_device);
-    d_c = copy_tool.to(vecmem::get_data(*c),
-                  dev_mem,
-                  vecmem::copy::type::host_to_device);
-#else
-    d_a = a->data();
-    d_b = b->data();
-    d_c = c->data();
-#pragma omp target update to(d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
-  {}
-#endif
+    #if defined(NATIVE)
+        d_a = copy_tool.to(vecmem::get_data(*a),
+                      dev_mem,
+                      vecmem::copy::type::host_to_device);
+        d_b = copy_tool.to(vecmem::get_data(*b),
+                      dev_mem,
+                      vecmem::copy::type::host_to_device);
+        d_c = copy_tool.to(vecmem::get_data(*c),
+                      dev_mem,
+                      vecmem::copy::type::host_to_device);
+    #else
+        d_a = a->data();
+        d_b = b->data();
+        d_c = c->data();
+    #pragma omp target update to(d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
+      {}
+    #endif
+#elif defined(VECPAR_GPU) and defined(MANAGED)
+    // make sure the data is initialized on the GPU using an init kernel
+    auto fn = [=] __device__ (int idx,
+            vecmem::data::vector_view<T> &a_view,
+            vecmem::data::vector_view<T> &b_view,
+            vecmem::data::vector_view<T> &c_view,
+            T ia, T ib, T ic) {
+        vecmem::device_vector<T> da(a_view);
+        vecmem::device_vector<T> db(b_view);
+        vecmem::device_vector<T> dc(c_view);
+
+        da[idx] = ia;
+        db[idx] = ib;
+        dc[idx] = ic;
+    };
+      vecpar::cuda::kernel<<<int(array_size/256+1), 256>>>(array_size, fn,
+        vecmem::get_data(*a),
+        vecmem::get_data(*b),
+        vecmem::get_data(*c),
+        initA, initB, initC);
+    cudaDeviceSynchronize();
+
 #endif
 }
 
@@ -70,17 +92,17 @@ void VecparStream<T>::read_arrays(std::vector<T>& h_a, std::vector<T>& h_b, std:
 {
 
 #if defined(VECPAR_GPU) and defined(DEFAULT)
-#if defined(NATIVE)
-    copy_tool(d_a, *a, vecmem::copy::type::device_to_host);
-    copy_tool(d_b, *b, vecmem::copy::type::device_to_host);
-    copy_tool(d_c, *c, vecmem::copy::type::device_to_host);
-#else
-    d_a = a->data();
-    d_b = b->data();
-    d_c = c->data();
-#pragma omp target update from(d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
-  {}
-#endif
+    #if defined(NATIVE)
+        copy_tool(d_a, *a, vecmem::copy::type::device_to_host);
+        copy_tool(d_b, *b, vecmem::copy::type::device_to_host);
+        copy_tool(d_c, *c, vecmem::copy::type::device_to_host);
+    #else
+        d_a = a->data();
+        d_b = b->data();
+        d_c = c->data();
+    #pragma omp target update from(d_a[0:array_size], d_b[0:array_size], d_c[0:array_size])
+      {}
+    #endif
 #endif
 
     for (int i = 0; i < array_size; i++)
