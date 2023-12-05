@@ -49,6 +49,8 @@
 #include "SYCLStream2020.h"
 #elif defined(OMP)
 #include "OMPStream.h"
+#elif defined(VECPAR)
+#include "VecparStream.hpp"
 #endif
 
 // Default size of 2^25
@@ -56,7 +58,7 @@ int ARRAY_SIZE = 33554432;
 unsigned int num_times = 100;
 unsigned int deviceIndex = 0;
 bool use_float = false;
-bool output_as_csv = false;
+bool output_as_csv = true;
 bool mibibytes = false;
 std::string csv_separator = ",";
 
@@ -298,6 +300,9 @@ void run()
   // Use the OpenMP implementation
   stream = new OMPStream<T>(ARRAY_SIZE, deviceIndex);
 
+#elif defined(VECPAR)
+  // Use vecpar implementation
+  stream = new VecparStream<T>(ARRAY_SIZE, deviceIndex);
 #endif
 
   stream->init_arrays(startA, startB, startC);
